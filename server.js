@@ -20,7 +20,7 @@ const SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 const CONSENT_PASSWORD = process.env.CONSENT_PASSWORD || '';
 const SERVER_NAME = 'spark-terminal-mcp';
 const SERVER_TITLE = 'Terminal MCP';
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const MAX_OUT = 100000;
 const SHARE_DIR = process.env.SHARE_DIR || path.join(os.tmpdir(), 'spark-mcp-share');
 try { fs.mkdirSync(SHARE_DIR, { recursive: true }); } catch {}
@@ -260,7 +260,7 @@ async function toolRunCommand(a) {
     child.on('close', (code) => { rec.done = true; rec.code = code; rec.child = null; rec.waiters.forEach((w) => w()); rec.waiters = []; });
     rec.child = child;
     procs.set(id, rec);
-    return ok(`Started background process_id=${id} (pid ${child.pid}).\nUse the "process" tool with action "output"/"wait"/"kill" and process_id ${id}.`);
+    return ok(`Started background process_id=${id} (pid ${child.pid}).\nUse manage_background_process with action "output"/"wait"/"kill" and process_id ${id}.`);
   }
   const r = await execCapture(a.command, a);
   return ok(r.text, r.isError);
@@ -610,96 +610,134 @@ async function toolSystemInfo() {
 // ====================== TOOL SCHEMAS ======================
 const RO = { readOnlyHint: true };
 const DEST = { destructiveHint: true };
-// User choice: run_command and run_code run without a confirmation prompt in Spark.
+// User choice: run_shell_command and run_code_snippet run without a confirmation prompt in Spark.
 const SAFE = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 const TOOLS = [
-  { name: 'run_command', title: 'Run command', description: 'Run a bash command on the Ubuntu server. Returns stdout, stderr and exit code. Set background:true for long-running jobs (returns a process_id to manage with the "process" tool).',
+  { name: 'run_shell_command', title: 'Run Shell Command',
+    description: 'Run any bash command on this Ubuntu 24.04 Linux server (full shell with internet access) and get back its stdout, stderr and exit code. Use it for anything a terminal can do: git clone, building projects, running scripts, curl, compiling, starting servers. Runs in /bin/bash, so pipes, redirects and && work. For jobs that take long or never end (servers, watchers, big builds) set background:true; you get a process_id, then use manage_background_process to read output, wait or stop it. Output longer than ~100 KB is truncated. Preinstalled: Node.js 26 + npm, Python 3.15 + pip (cloudscraper, requests), git, build-essential, zip/unzip/7z/tar/unrar, jq, curl, wget. Example: {"command":"git clone https://github.com/user/repo && ls repo"}.',
     annotations: SAFE,
     inputSchema: { type: 'object', required: ['command'], properties: {
-      command: { type: 'string', description: 'Bash command, e.g. "ls -la" or "python3 app.py"' },
-      cwd: { type: 'string', description: 'Working directory (default: home)' },
-      timeout: { type: 'integer', description: 'Timeout in seconds. Default 60, no fixed upper limit (use what you need).' },
-      env: { type: 'object', description: 'Extra environment variables for this command' },
-      background: { type: 'boolean', description: 'Run detached in background and return a process_id' },
+      command: { type: 'string', description: 'The bash command line to run, exactly as typed in a terminal, e.g. "ls -la", "python3 app.py", "cd proj && npm install".' },
+      cwd: { type: 'string', description: 'Folder to run the command in. Defaults to the home folder. Absolute path or ~/path.' },
+      timeout: { type: 'integer', description: 'Seconds to wait before the command is killed. Default 60. No fixed upper limit: pass a bigger number (e.g. 600, 3600) for long installs or builds. Ignored when background is true.' },
+      env: { type: 'object', description: 'Extra environment variables for this one command only, as {"NAME":"value"}.' },
+      background: { type: 'boolean', description: 'true = start detached and return immediately with a process_id (for servers or very long jobs). Then use manage_background_process.' },
     } } },
-  { name: 'process', description: 'Manage background processes started by run_command. action: list | output | wait | kill.',
+  { name: 'manage_background_process', title: 'Manage Background Process',
+    description: 'Control commands started with run_shell_command background:true. action "list" shows every background process with its process_id, command, status and runtime. action "output" returns what the process has printed so far (stdout+stderr). action "wait" blocks until it finishes (or timeout) and returns exit code and output. action "kill" stops it. Pass the process_id returned by run_shell_command (not needed for list).',
     inputSchema: { type: 'object', required: ['action'], properties: {
-      action: { type: 'string', enum: ['list', 'output', 'wait', 'kill'] },
-      process_id: { type: 'integer' }, all: { type: 'boolean', description: 'list: include finished processes' },
-      clear: { type: 'boolean', description: 'output: clear buffer after reading' },
-      timeout: { type: 'integer', description: 'wait: max seconds to wait (default 60, no upper limit)' },
-      force: { type: 'boolean', description: 'kill: send SIGKILL instead of SIGTERM' },
+      action: { type: 'string', enum: ['list', 'output', 'wait', 'kill'], description: 'list | output | wait | kill' },
+      process_id: { type: 'integer', description: 'The process_id returned when the background command started. Required for output, wait and kill.' },
+      all: { type: 'boolean', description: 'list only: also show processes that already finished.' },
+      clear: { type: 'boolean', description: 'output only: empty the buffer after reading so the next read shows only new output.' },
+      timeout: { type: 'integer', description: 'wait only: maximum seconds to wait. Default 60, no upper limit.' },
+      force: { type: 'boolean', description: 'kill only: true sends SIGKILL (hard stop) instead of SIGTERM (polite stop).' },
     } } },
-  { name: 'fs_read', description: 'Read-only filesystem access. action: read | info | list | find | grep.',
+  { name: 'read_files', title: 'Read Files and Folders',
+    description: 'Look at files and folders on the server without changing anything. action "read": return a text file\'s content, optionally only lines start_line..end_line (use this to view source code). action "info": size, type, permissions and modified time of a path. action "list": list a folder\'s contents, recursive up to depth levels. action "find": search a folder tree for file names matching a glob like "*.py". action "grep": search inside files under a path for a text pattern and return matching lines with file and line number.',
     annotations: RO,
     inputSchema: { type: 'object', required: ['action', 'path'], properties: {
-      action: { type: 'string', enum: ['read', 'info', 'list', 'find', 'grep'] },
-      path: { type: 'string' },
-      start_line: { type: 'integer' }, end_line: { type: 'integer' },
-      depth: { type: 'integer', description: 'list: recursion depth (default 1)' }, hidden: { type: 'boolean', description: 'list: include dotfiles' },
-      pattern: { type: 'string', description: 'find: filename glob; grep: text pattern' }, ignore_case: { type: 'boolean' },
+      action: { type: 'string', enum: ['read', 'info', 'list', 'find', 'grep'], description: 'read | info | list | find | grep' },
+      path: { type: 'string', description: 'File (read, info) or folder (list, find, grep) to look at. Absolute path or ~/path.' },
+      start_line: { type: 'integer', description: 'read only: first line to return (1-based).' },
+      end_line: { type: 'integer', description: 'read only: last line to return.' },
+      depth: { type: 'integer', description: 'list only: how many folder levels deep to go. Default 1.' },
+      hidden: { type: 'boolean', description: 'list only: include hidden dotfiles.' },
+      pattern: { type: 'string', description: 'find: file name glob such as "*.kt" or "build.gradle*". grep: the text or regex to search for.' },
+      ignore_case: { type: 'boolean', description: 'find/grep: ignore upper/lower case.' },
     } } },
-  { name: 'fs_write', description: 'Create or modify files/folders. action: write | append | edit | mkdir | copy | move | delete. Destructive; protected system paths are blocked.',
+  { name: 'write_files', title: 'Write and Edit Files',
+    description: 'Create, change, copy, move or delete files and folders on the server. action "write": create or overwrite a file with content (parent folders are created). action "append": add content to the end of a file. action "edit": replace the exact text find with replace inside a file (first match, or all with replace_all) - the best way to change part of source code. action "mkdir": create a folder. action "copy" / "move": copy or move/rename path to dest. action "delete": remove a file, or a folder with recursive:true. Core system folders such as /, /etc, /usr, /bin cannot be deleted.',
     annotations: DEST,
     inputSchema: { type: 'object', required: ['action', 'path'], properties: {
-      action: { type: 'string', enum: ['write', 'append', 'edit', 'mkdir', 'copy', 'move', 'delete'] },
-      path: { type: 'string' }, content: { type: 'string', description: 'write/append content' },
-      find: { type: 'string', description: 'edit: text to replace' }, replace: { type: 'string', description: 'edit: replacement' }, replace_all: { type: 'boolean' },
-      dest: { type: 'string', description: 'copy/move destination' },
-      recursive: { type: 'boolean', description: 'delete a non-empty directory' },
+      action: { type: 'string', enum: ['write', 'append', 'edit', 'mkdir', 'copy', 'move', 'delete'], description: 'write | append | edit | mkdir | copy | move | delete' },
+      path: { type: 'string', description: 'The file or folder to act on.' },
+      content: { type: 'string', description: 'write/append: the full text to write.' },
+      find: { type: 'string', description: 'edit: the exact existing text to replace (must match exactly, including spaces).' },
+      replace: { type: 'string', description: 'edit: the new text that replaces find.' },
+      replace_all: { type: 'boolean', description: 'edit: replace every match instead of only the first.' },
+      dest: { type: 'string', description: 'copy/move: destination path.' },
+      recursive: { type: 'boolean', description: 'delete: required to delete a folder that is not empty.' },
     } } },
-  { name: 'archive', description: 'Create, extract or inspect archives. action: create (zip, tar.gz, tar, 7z) | extract (zip, tar.*, 7z, rar) | list. Set share:true on create to also get a download link.',
+  { name: 'manage_archives', title: 'Zip / Unzip Archives',
+    description: 'Compress and extract files. action "create": pack one path or several paths into a zip, tar.gz, tar or 7z archive (default zip); set share:true to also get a direct download link for it. action "extract": unpack a zip, tar, tar.gz, tar.xz, tar.bz2, 7z or rar file into dest. action "list": show what is inside an archive without extracting.',
     annotations: DEST,
     inputSchema: { type: 'object', required: ['action'], properties: {
-      action: { type: 'string', enum: ['create', 'extract', 'list'] },
-      path: { type: 'string', description: 'single source (create) or the archive (extract/list)' },
-      paths: { type: 'array', items: { type: 'string' }, description: 'create: multiple sources' },
-      format: { type: 'string', enum: ['zip', 'tar.gz', 'tar', '7z'], description: 'create format (default zip)' },
-      output: { type: 'string', description: 'create: output archive path' },
-      dest: { type: 'string', description: 'extract destination folder' },
-      share: { type: 'boolean' }, expires_hours: { type: 'integer' }, max_downloads: { type: 'integer' },
+      action: { type: 'string', enum: ['create', 'extract', 'list'], description: 'create | extract | list' },
+      path: { type: 'string', description: 'create: the single file/folder to pack. extract/list: the archive file.' },
+      paths: { type: 'array', items: { type: 'string' }, description: 'create: several files/folders to pack together (instead of path).' },
+      format: { type: 'string', enum: ['zip', 'tar.gz', 'tar', '7z'], description: 'create: archive type. Default zip.' },
+      output: { type: 'string', description: 'create: where to save the archive, e.g. ~/project.zip. Default: next to the source.' },
+      dest: { type: 'string', description: 'extract: folder to unpack into. Default: next to the archive.' },
+      share: { type: 'boolean', description: 'create: also return a download link for the new archive.' },
+      expires_hours: { type: 'integer', description: 'create+share: link lifetime in hours (default 24, max 720).' },
+      max_downloads: { type: 'integer', description: 'create+share: optional limit on how many times the link works.' },
     } } },
-  { name: 'share_file', description: 'Turn ANY file on the server into a direct download link (opening it starts the download). A .py, .kt, .zip, image, anything. A folder is zipped automatically. action: create | list | revoke.',
+  { name: 'create_download_link', title: 'Create Download Link',
+    description: 'Give the user a direct download link (public HTTPS URL) for ANY file on the server: .py, .kt, .apk, .zip, images, videos, PDFs, anything. Opening the link starts the download right away with the correct file name; resume is supported. A folder is zipped automatically first. Use this whenever the user wants to download or receive a file, and show them the returned URL. action "list" shows active links, action "revoke" disables one. Links last 24 hours by default (max 30 days) and stop working if the server restarts.',
     inputSchema: { type: 'object', required: ['action'], properties: {
-      action: { type: 'string', enum: ['create', 'list', 'revoke'] },
-      path: { type: 'string', description: 'create: file or folder to share; revoke: revoke all links for this file' },
-      expires_hours: { type: 'integer', description: 'link lifetime (default 24, max 720)' },
-      max_downloads: { type: 'integer', description: 'optional download cap' },
-      token: { type: 'string', description: 'revoke: the link (or its token)' },
+      action: { type: 'string', enum: ['create', 'list', 'revoke'], description: 'create | list | revoke' },
+      path: { type: 'string', description: 'create: the file or folder to share. revoke: disable every link for this file.' },
+      expires_hours: { type: 'integer', description: 'create: how many hours the link works. Default 24, max 720.' },
+      max_downloads: { type: 'integer', description: 'create: optional cap on number of downloads.' },
+      token: { type: 'string', description: 'revoke: the link URL (or its token) to disable.' },
     } } },
-  { name: 'run_code', title: 'Run code', description: 'Run a snippet of Python, Node.js or Bash and return its output. Python has cloudscraper preinstalled (import cloudscraper; s = cloudscraper.create_scraper(); s.get(url)) for pages behind Cloudflare anti-bot checks, plus requests.',
+  { name: 'run_code_snippet', title: 'Run Code Snippet',
+    description: 'Run a piece of Python 3.15, Node.js 26 or Bash code directly (no need to save a file first) and return what it prints, plus errors and exit code. Good for calculations, data processing, quick tests, scraping and API calls. Python has cloudscraper and requests preinstalled: for websites behind a Cloudflare anti-bot page use `import cloudscraper; s = cloudscraper.create_scraper(); r = s.get(url); print(r.status_code, r.text[:2000])`. Install more libraries with manage_packages. Optional stdin is fed to the program.',
     annotations: SAFE,
     inputSchema: { type: 'object', required: ['code'], properties: {
-      language: { type: 'string', enum: ['python', 'node', 'bash'], description: 'default python' },
-      code: { type: 'string' }, stdin: { type: 'string' }, cwd: { type: 'string' }, timeout: { type: 'integer' }, env: { type: 'object' },
+      language: { type: 'string', enum: ['python', 'node', 'bash'], description: 'python (default) | node | bash' },
+      code: { type: 'string', description: 'The full source code to run. Use print()/console.log to show results.' },
+      stdin: { type: 'string', description: 'Optional text passed to the program on standard input.' },
+      cwd: { type: 'string', description: 'Folder to run in (relative file paths resolve here). Default home.' },
+      timeout: { type: 'integer', description: 'Seconds before it is stopped. Default 60, no upper limit.' },
+      env: { type: 'object', description: 'Extra environment variables as {"NAME":"value"}.' },
     } } },
-  { name: 'package', description: 'Install or manage packages. manager: apt | pip | npm. action: install | uninstall | list | search.',
+  { name: 'manage_packages', title: 'Install Software Packages',
+    description: 'Install, remove, list or search software packages. manager "apt" = Ubuntu system programs (e.g. ffmpeg, openjdk-21-jdk, sqlite3). manager "pip" = Python libraries (e.g. pandas, flask, yt-dlp). manager "npm" = Node.js packages, installed globally (e.g. typescript, pm2). action "install" / "uninstall" take packages (a list of names). action "list" shows what is installed. action "search" looks up a name.',
     annotations: DEST,
     inputSchema: { type: 'object', required: ['manager', 'action'], properties: {
-      manager: { type: 'string', enum: ['apt', 'pip', 'npm'] },
-      action: { type: 'string', enum: ['install', 'uninstall', 'list', 'search'] },
-      packages: { type: 'array', items: { type: 'string' } }, name: { type: 'string' }, timeout: { type: 'integer' },
+      manager: { type: 'string', enum: ['apt', 'pip', 'npm'], description: 'apt (system) | pip (Python) | npm (Node.js)' },
+      action: { type: 'string', enum: ['install', 'uninstall', 'list', 'search'], description: 'install | uninstall | list | search' },
+      packages: { type: 'array', items: { type: 'string' }, description: 'install/uninstall: package names, e.g. ["requests","flask==3.1"].' },
+      name: { type: 'string', description: 'search: the name to search for; list: optional filter.' },
+      timeout: { type: 'integer', description: 'Seconds to allow. No upper limit.' },
     } } },
-  { name: 'http', description: 'Make an HTTP(S) request. mode: raw (status+headers+body, for APIs) | text (stripped page text) | download (save to server; share:true for a download link).',
+  { name: 'http_request', title: 'HTTP Request / Download URL',
+    description: 'Call a URL from the server. mode "raw" (default): returns status code, response headers and body - use for REST/JSON APIs with any method (GET, POST, PUT, PATCH, DELETE), custom headers and a body or json. mode "text": fetch a web page and return only its readable text. mode "download": save the file at the URL onto the server at save_to (any size or type); add share:true to also get a download link for the user. For Cloudflare-protected sites use run_code_snippet with cloudscraper instead.',
     inputSchema: { type: 'object', required: ['url'], properties: {
-      url: { type: 'string' }, method: { type: 'string' }, headers: { type: 'object' },
-      body: { type: 'string' }, json: {}, mode: { type: 'string', enum: ['raw', 'text', 'download'] },
-      save_to: { type: 'string', description: 'download: destination path' }, share: { type: 'boolean' },
-      expires_hours: { type: 'integer' }, max_downloads: { type: 'integer' }, timeout: { type: 'integer' },
+      url: { type: 'string', description: 'Full http:// or https:// address.' },
+      method: { type: 'string', description: 'HTTP method. Default GET.' },
+      headers: { type: 'object', description: 'Request headers as {"Name":"value"}, e.g. Authorization.' },
+      body: { type: 'string', description: 'Raw request body text.' },
+      json: { description: 'A JSON value to send as the body (sets Content-Type: application/json).' },
+      mode: { type: 'string', enum: ['raw', 'text', 'download'], description: 'raw (default) | text | download' },
+      save_to: { type: 'string', description: 'download: path to save the file to on the server.' },
+      share: { type: 'boolean', description: 'download: also return a download link.' },
+      expires_hours: { type: 'integer', description: 'download+share: link lifetime in hours.' },
+      max_downloads: { type: 'integer', description: 'download+share: optional download cap.' },
+      timeout: { type: 'integer', description: 'Seconds to wait. Default 60.' },
     } } },
-  { name: 'env', description: 'Read or change environment variables. action: get | set | unset | list. Secret-looking values are masked and the server\u2019s own secrets are never shown or changed.',
+  { name: 'manage_env_variables', title: 'Environment Variables',
+    description: 'Read or change the server\'s environment variables, which later commands inherit. action "list": all variables (secret-looking values such as keys and tokens are masked). action "get": one variable. action "set": create or change name=value. action "unset": remove one. The server\'s own login secrets are never shown and cannot be changed.',
     inputSchema: { type: 'object', required: ['action'], properties: {
-      action: { type: 'string', enum: ['get', 'set', 'unset', 'list'] }, name: { type: 'string' }, value: { type: 'string' },
+      action: { type: 'string', enum: ['get', 'set', 'unset', 'list'], description: 'list | get | set | unset' },
+      name: { type: 'string', description: 'Variable name, e.g. API_KEY (get/set/unset).' },
+      value: { type: 'string', description: 'set: the new value.' },
     } } },
-  { name: 'system_info', description: 'Report OS, CPU, RAM, disk, uptime, load, runtime versions and current directory.',
+  { name: 'get_system_info', title: 'Get System Info',
+    description: 'Report the server\'s OS, CPU, RAM, free disk space, uptime, load, current folder, installed runtime versions (Node, npm, Python, pip, git) and how many background processes are running. Takes no input. Use it to check the machine before installing or building.',
     annotations: RO, inputSchema: { type: 'object', properties: {} } },
 ];
 
 const HANDLERS = {
-  run_command: toolRunCommand, process: toolProcess, fs_read: toolFsRead, fs_write: toolFsWrite,
-  archive: toolArchive, share_file: toolShareFile, run_code: toolRunCode, package: toolPackage,
-  http: toolHttp, env: toolEnv, system_info: toolSystemInfo,
+  run_shell_command: toolRunCommand, manage_background_process: toolProcess, read_files: toolFsRead, write_files: toolFsWrite,
+  manage_archives: toolArchive, create_download_link: toolShareFile, run_code_snippet: toolRunCode, manage_packages: toolPackage,
+  http_request: toolHttp, manage_env_variables: toolEnv, get_system_info: toolSystemInfo,
 };
+// old v1.x names still accepted
+Object.assign(HANDLERS, { run_command: toolRunCommand, process: toolProcess, fs_read: toolFsRead, fs_write: toolFsWrite,
+  archive: toolArchive, share_file: toolShareFile, run_code: toolRunCode, package: toolPackage, http: toolHttp, env: toolEnv, system_info: toolSystemInfo });
 
 // ---------- MCP ----------
 const SUPPORTED = ['2025-06-18', '2025-11-25', '2025-03-26', '2024-11-05'];
@@ -708,10 +746,10 @@ function serverInfo(req) {
   const b = baseUrl(req);
   // Same shape the GitHub MCP server uses (shows in Spark): PNG data URIs, light + dark theme, no "sizes".
   const png = ICONS.png64 || ICONS.png192;
-  if (png) si.icons = [
+  si.icons = [{ src: b + '/icon.png', mimeType: 'image/png' }];
+  if (png) si.icons.push(
     { src: `data:image/png;base64,${png}`, mimeType: 'image/png', theme: 'light' },
-    { src: `data:image/png;base64,${png}`, mimeType: 'image/png', theme: 'dark' },
-  ];
+    { src: `data:image/png;base64,${png}`, mimeType: 'image/png', theme: 'dark' });
   si.websiteUrl = b;
   return si;
 }
@@ -725,7 +763,7 @@ async function handleRpc(msg, req) {
     case 'initialize': {
       const pv = SUPPORTED.includes(params?.protocolVersion) ? params.protocolVersion : SUPPORTED[0];
       return okr({ protocolVersion: pv, capabilities: { tools: { listChanged: false } }, serverInfo: serverInfo(req),
-        instructions: 'Terminal MCP: a full Ubuntu shell. Run commands (run_command), read/write files (fs_read/fs_write), archive and share files (archive/share_file give download links), run code, manage packages, make HTTP requests, read env, and get system info.' });
+        instructions: 'Terminal MCP: a full Ubuntu shell. Run shell commands (run_shell_command, background jobs via manage_background_process), read and edit files (read_files, write_files), zip/unzip (manage_archives), give the user direct download links for any file (create_download_link), run Python/Node/Bash code (run_code_snippet, cloudscraper preinstalled), install packages (manage_packages), call URLs and APIs (http_request), manage environment variables (manage_env_variables) and check the machine (get_system_info).' });
     }
     case 'ping': return okr({});
     case 'tools/list': return okr({ tools: TOOLS });
@@ -781,11 +819,13 @@ http.createServer(async (req, res) => {
     if (p.startsWith('/.well-known/oauth-authorization-server') || p.startsWith('/.well-known/openid-configuration')) return send(res, 200, authServer(req));
     if (p === '/health') return send(res, 200, { ok: true, name: SERVER_NAME, version: VERSION });
     // logo endpoints (no auth)
-    if (p === '/icon.png' && ICONS.png512) return serveIcon(res, Buffer.from(ICONS.png512, 'base64'), 'image/png');
-    if (p === '/icon-192.png' && ICONS.png192) return serveIcon(res, Buffer.from(ICONS.png192, 'base64'), 'image/png');
-    if (p === '/apple-touch-icon.png' && ICONS.apple) return serveIcon(res, Buffer.from(ICONS.apple, 'base64'), 'image/png');
-    if (p === '/icon.svg' && ICONS.svg) return serveIcon(res, Buffer.from(ICONS.svg), 'image/svg+xml');
-    if (p === '/favicon.ico' && ICONS.ico) return serveIcon(res, Buffer.from(ICONS.ico, 'base64'), 'image/x-icon');
+    const ip = p.startsWith('/mcp/') ? p.slice(4) : p;
+    if (['/favicon.png', '/logo.png'].includes(ip) && ICONS.png512) return serveIcon(res, Buffer.from(ICONS.png512, 'base64'), 'image/png');
+    if (ip === '/icon.png' && ICONS.png512) return serveIcon(res, Buffer.from(ICONS.png512, 'base64'), 'image/png');
+    if (ip === '/icon-192.png' && ICONS.png192) return serveIcon(res, Buffer.from(ICONS.png192, 'base64'), 'image/png');
+    if (ip === '/apple-touch-icon.png' && ICONS.apple) return serveIcon(res, Buffer.from(ICONS.apple, 'base64'), 'image/png');
+    if (ip === '/icon.svg' && ICONS.svg) return serveIcon(res, Buffer.from(ICONS.svg), 'image/svg+xml');
+    if (ip === '/favicon.ico' && ICONS.ico) return serveIcon(res, Buffer.from(ICONS.ico, 'base64'), 'image/x-icon');
     // download links (no auth; token is the capability)
     if (p.startsWith('/dl/')) { const parts = u.pathname.split('/'); return serveDownload(req, res, parts[2], parts[3]); }
     const raw = await readBody(req);
@@ -794,9 +834,9 @@ http.createServer(async (req, res) => {
     if (p === '/authorize' && req.method === 'POST') return authorizePost(req, res, parseBody(req, raw) || {});
     if (p === '/token' && req.method === 'POST') return token(req, res, parseBody(req, raw));
     if (p === '/mcp' || p === '/') {
-      if (p === '/' && req.method === 'GET' && !req.headers.authorization && (req.headers.accept || '').includes('text/html')) {
+      if (p === '/' && req.method === 'GET' && !req.headers.authorization) {
         const b = baseUrl(req);
-        return send(res, 200, `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=icon href="${b}/favicon.ico"><title>${SERVER_TITLE}</title><style>body{font-family:system-ui;max-width:560px;margin:60px auto;padding:0 18px;color:#1a1a1a}code{background:#f0f2f7;padding:2px 6px;border-radius:5px}.h{display:flex;align-items:center;gap:14px}</style><div class=h>${logoTag(b)}<h2>${SERVER_TITLE}</h2></div><p>A terminal MCP server for Gemini Spark custom apps.</p><p>MCP endpoint: <code>${b}/mcp</code></p>`);
+        return send(res, 200, `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=icon href="${b}/favicon.ico" sizes=any><link rel=icon type=image/png href="${b}/icon.png"><link rel=apple-touch-icon href="${b}/apple-touch-icon.png"><meta property=og:image content="${b}/icon.png"><title>${SERVER_TITLE}</title><style>body{font-family:system-ui;max-width:560px;margin:60px auto;padding:0 18px;color:#1a1a1a}code{background:#f0f2f7;padding:2px 6px;border-radius:5px}.h{display:flex;align-items:center;gap:14px}</style><div class=h>${logoTag(b)}<h2>${SERVER_TITLE}</h2></div><p>A terminal MCP server for Gemini Spark custom apps.</p><p>MCP endpoint: <code>${b}/mcp</code></p>`);
       }
       return mcp(req, res, raw);
     }

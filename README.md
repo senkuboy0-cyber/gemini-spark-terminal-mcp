@@ -34,17 +34,17 @@ Run commands, edit files, zip things up, and get direct download links — all f
 
 | # | Tool | Actions | What it does | Safety |
 |:-:|------|---------|--------------|:------:|
-| 1 | `run_command` | — | Run any bash command. `cwd`, `env`, `timeout`, `background` | ⚡ |
-| 2 | `process` | `list` · `output` · `wait` · `kill` | Manage background jobs | 🟡 |
-| 3 | `fs_read` | `read` · `info` · `list` · `find` · `grep` | Read-only file access | 🟢 |
-| 4 | `fs_write` | `write` · `append` · `edit` · `mkdir` · `copy` · `move` · `delete` | Change files and folders | 🔴 |
-| 5 | `archive` | `create` · `extract` · `list` | zip / tar.gz / tar / 7z / rar, optional share link | 🔴 |
-| 6 | `share_file` | `create` · `list` · `revoke` | Direct download link for any file (folders auto-zipped) | 🟡 |
-| 7 | `run_code` | — | Run Python, Node.js or Bash snippets, with `stdin`. `cloudscraper` preinstalled | ⚡ |
-| 8 | `package` | `install` · `uninstall` · `list` · `search` | apt, pip, npm | 🔴 |
-| 9 | `http` | modes `raw` · `text` · `download` | Call APIs, read pages, download to server | 🟡 |
-| 10 | `env` | `get` · `set` · `unset` · `list` | Environment variables, secrets masked | 🟡 |
-| 11 | `system_info` | — | OS, CPU, RAM, disk, uptime, versions | 🟢 |
+| 1 | `run_shell_command` | — | Run any bash command. `cwd`, `env`, `timeout`, `background` | ⚡ |
+| 2 | `manage_background_process` | `list` · `output` · `wait` · `kill` | Manage background jobs | 🟡 |
+| 3 | `read_files` | `read` · `info` · `list` · `find` · `grep` | Read-only file access | 🟢 |
+| 4 | `write_files` | `write` · `append` · `edit` · `mkdir` · `copy` · `move` · `delete` | Change files and folders | 🔴 |
+| 5 | `manage_archives` | `create` · `extract` · `list` | zip / tar.gz / tar / 7z / rar, optional share link | 🔴 |
+| 6 | `create_download_link` | `create` · `list` · `revoke` | Direct download link for any file (folders auto-zipped) | 🟡 |
+| 7 | `run_code_snippet` | — | Run Python, Node.js or Bash snippets, with `stdin`. `cloudscraper` preinstalled | ⚡ |
+| 8 | `manage_packages` | `install` · `uninstall` · `list` · `search` | apt, pip, npm | 🔴 |
+| 9 | `http_request` | modes `raw` · `text` · `download` | Call APIs, read pages, download to server | 🟡 |
+| 10 | `manage_env_variables` | `get` · `set` · `unset` · `list` | Environment variables, secrets masked | 🟡 |
+| 11 | `get_system_info` | — | OS, CPU, RAM, disk, uptime, versions | 🟢 |
 
 🟢 read-only · ⚡ runs without a confirmation prompt · 🟡 moderate · 🔴 destructive (Spark asks before running)
 
@@ -62,9 +62,9 @@ https://<your-service>.onrender.com/dl/<signed-token>/main.kt
 - Supports **resume** (HTTP `Range`)
 - Default lifetime **24 hours** (`expires_hours`, up to 30 days), optional `max_downloads`
 - Tokens are **HMAC-signed** — they cannot be guessed, and no login is needed to download
-- Revoke any time with `share_file` → `revoke`
+- Revoke any time with `create_download_link` → `revoke`
 
-Shortcuts: `archive` → `create` with `share: true`, or `http` → `download` with `share: true`, return a link in the same step.
+Shortcuts: `manage_archives` → `create` with `share: true`, or `http_request` → `download` with `share: true`, return a link in the same step.
 
 > ⚠️ On Render's free tier the disk is temporary. When the service sleeps or redeploys, files and their links disappear — download soon after creating a link.
 
@@ -122,13 +122,15 @@ JWT_SECRET=dev CONSENT_PASSWORD=dev node server.js
 
 ---
 
+> Old v1.0 tool names (`run_command`, `fs_read`, `share_file`, …) are still accepted for compatibility.
+
 ## 🔐 Security
 
-- `run_command` gives **full shell access** — treat the consent password like a root password
-- `run_command` and `run_code` are marked so Spark runs them **without asking each time**
-- `JWT_SECRET` and `CONSENT_PASSWORD` are **stripped from every child process**, hidden from `env`, and cannot be changed through tools
-- `env list` masks anything that looks like a key, token, secret or password, and credentials inside URLs
-- `fs_write delete` refuses protected paths (`/`, `/etc`, `/usr`, `/bin`, `/var`, …) and needs `recursive: true` for folders
+- `run_shell_command` gives **full shell access** — treat the consent password like a root password
+- `run_shell_command` and `run_code_snippet` are marked so Spark runs them **without asking each time**
+- `JWT_SECRET` and `CONSENT_PASSWORD` are **stripped from every child process**, hidden from `manage_env_variables`, and cannot be changed through tools
+- `manage_env_variables list` masks anything that looks like a key, token, secret or password, and credentials inside URLs
+- `write_files delete` refuses protected paths (`/`, `/etc`, `/usr`, `/bin`, `/var`, …) and needs `recursive: true` for folders
 - Access tokens last **1 hour**, refresh tokens **30 days**
 - Tool output is capped at **~100 KB** per call
 
