@@ -148,7 +148,7 @@ Drawn in code (`assets/icon.svg`, rendered to PNG/ICO). Served at:
 | `/icon.svg` | SVG |
 | `/favicon.ico` | ICO 16–64 |
 
-Also advertised in the MCP `initialize` response as `serverInfo.icons` — PNG data URIs with `light` and `dark` themes and no `sizes`, the same shape the GitHub MCP server uses — and in the OAuth registration (`logo_uri`).
+Also advertised in the MCP `initialize` response (`serverInfo.icons`) and the OAuth registration (`logo_uri`). Whether a client shows it is up to the client.
 
 ---
 

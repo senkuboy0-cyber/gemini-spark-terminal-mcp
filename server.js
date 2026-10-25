@@ -11,7 +11,7 @@ const zlib = require('zlib');
 const { spawn, exec } = require('child_process');
 const { URL, URLSearchParams } = require('url');
 const ICONS = {};
-for (const [k, f] of [['png64', 'icon-64.png'], ['png512', 'icon.png'], ['png192', 'icon-192.png'], ['apple', 'apple-touch-icon.png'], ['ico', 'favicon.ico'], ['svg', 'icon.svg']]) {
+for (const [k, f] of [['png512', 'icon.png'], ['png192', 'icon-192.png'], ['apple', 'apple-touch-icon.png'], ['ico', 'favicon.ico'], ['svg', 'icon.svg']]) {
   try { const buf = require('fs').readFileSync(require('path').join(__dirname, 'assets', f)); ICONS[k] = k === 'svg' ? buf.toString() : buf.toString('base64'); } catch {}
 }
 
@@ -744,12 +744,9 @@ const SUPPORTED = ['2025-06-18', '2025-11-25', '2025-03-26', '2024-11-05'];
 function serverInfo(req) {
   const si = { name: SERVER_NAME, title: SERVER_TITLE, version: VERSION };
   const b = baseUrl(req);
-  // Same shape the GitHub MCP server uses (shows in Spark): PNG data URIs, light + dark theme, no "sizes".
-  const png = ICONS.png64 || ICONS.png192;
-  si.icons = [{ src: b + '/icon.png', mimeType: 'image/png' }];
-  if (png) si.icons.push(
-    { src: `data:image/png;base64,${png}`, mimeType: 'image/png', theme: 'light' },
-    { src: `data:image/png;base64,${png}`, mimeType: 'image/png', theme: 'dark' });
+  si.icons = [];
+  if (ICONS.png192) si.icons.push({ src: `data:image/png;base64,${ICONS.png192}`, mimeType: 'image/png', sizes: ['192x192'] });
+  si.icons.push({ src: b + '/icon.png', mimeType: 'image/png', sizes: ['512x512'] }, { src: b + '/icon.svg', mimeType: 'image/svg+xml', sizes: ['any'] });
   si.websiteUrl = b;
   return si;
 }
@@ -809,11 +806,6 @@ function serveIcon(res, buf, type) {
   res.end(buf);
 }
 
-// Google Search Console verification (so Google's favicon service, used by Spark, can learn our logo).
-// Put the meta-tag code in assets/google-site-verification.txt, or HTML-file names (googleXXXX.html) one per line in assets/google-verify-files.txt
-const readAsset = (f) => { try { return fs.readFileSync(path.join(__dirname, 'assets', f), 'utf8').trim(); } catch { return ''; } };
-const GSV = process.env.GOOGLE_SITE_VERIFICATION || readAsset('google-site-verification.txt');
-const GVFILES = readAsset('google-verify-files.txt').split(/\s+/).filter(Boolean);
 // ---------- router ----------
 http.createServer(async (req, res) => {
   try {
@@ -822,9 +814,6 @@ http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, '');
     if (p.startsWith('/.well-known/oauth-protected-resource')) return send(res, 200, protectedResource(req));
     if (p.startsWith('/.well-known/oauth-authorization-server') || p.startsWith('/.well-known/openid-configuration')) return send(res, 200, authServer(req));
-    if (p === '/robots.txt') return send(res, 200, `User-agent: *\nAllow: /\nSitemap: ${baseUrl(req)}/sitemap.xml\n`, { 'Content-Type': 'text/plain' });
-    if (p === '/sitemap.xml') return send(res, 200, `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${baseUrl(req)}/</loc></url></urlset>`, { 'Content-Type': 'application/xml' });
-    if (/^\/google[\w-]+\.html$/.test(p) && GVFILES.includes(p.slice(1))) return send(res, 200, `google-site-verification: ${p.slice(1)}`, { 'Content-Type': 'text/html' });
     if (p === '/health') return send(res, 200, { ok: true, name: SERVER_NAME, version: VERSION });
     // logo endpoints (no auth)
     const ip = p.startsWith('/mcp/') ? p.slice(4) : p;
@@ -847,7 +836,6 @@ http.createServer(async (req, res) => {
         return send(res, 200, `<!DOCTYPE html>
 <html lang="en">
 <head>
-${GSV ? `<meta name="google-site-verification" content="${GSV}" />` : ''}
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${SERVER_TITLE}</title>
