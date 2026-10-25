@@ -809,6 +809,11 @@ function serveIcon(res, buf, type) {
   res.end(buf);
 }
 
+// Google Search Console verification (so Google's favicon service, used by Spark, can learn our logo).
+// Put the meta-tag code in assets/google-site-verification.txt, or HTML-file names (googleXXXX.html) one per line in assets/google-verify-files.txt
+const readAsset = (f) => { try { return fs.readFileSync(path.join(__dirname, 'assets', f), 'utf8').trim(); } catch { return ''; } };
+const GSV = process.env.GOOGLE_SITE_VERIFICATION || readAsset('google-site-verification.txt');
+const GVFILES = readAsset('google-verify-files.txt').split(/\s+/).filter(Boolean);
 // ---------- router ----------
 http.createServer(async (req, res) => {
   try {
@@ -817,6 +822,9 @@ http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, '');
     if (p.startsWith('/.well-known/oauth-protected-resource')) return send(res, 200, protectedResource(req));
     if (p.startsWith('/.well-known/oauth-authorization-server') || p.startsWith('/.well-known/openid-configuration')) return send(res, 200, authServer(req));
+    if (p === '/robots.txt') return send(res, 200, `User-agent: *\nAllow: /\nSitemap: ${baseUrl(req)}/sitemap.xml\n`, { 'Content-Type': 'text/plain' });
+    if (p === '/sitemap.xml') return send(res, 200, `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${baseUrl(req)}/</loc></url></urlset>`, { 'Content-Type': 'application/xml' });
+    if (/^\/google[\w-]+\.html$/.test(p) && GVFILES.includes(p.slice(1))) return send(res, 200, `google-site-verification: ${p.slice(1)}`, { 'Content-Type': 'text/html' });
     if (p === '/health') return send(res, 200, { ok: true, name: SERVER_NAME, version: VERSION });
     // logo endpoints (no auth)
     const ip = p.startsWith('/mcp/') ? p.slice(4) : p;
@@ -836,7 +844,7 @@ http.createServer(async (req, res) => {
     if (p === '/mcp' || p === '/') {
       if (p === '/' && req.method === 'GET' && !req.headers.authorization) {
         const b = baseUrl(req);
-        return send(res, 200, `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=icon href="${b}/favicon.ico" sizes=any><link rel=icon type=image/png href="${b}/icon.png"><link rel=apple-touch-icon href="${b}/apple-touch-icon.png"><meta property=og:image content="${b}/icon.png"><title>${SERVER_TITLE}</title><style>body{font-family:system-ui;max-width:560px;margin:60px auto;padding:0 18px;color:#1a1a1a}code{background:#f0f2f7;padding:2px 6px;border-radius:5px}.h{display:flex;align-items:center;gap:14px}</style><div class=h>${logoTag(b)}<h2>${SERVER_TITLE}</h2></div><p>A terminal MCP server for Gemini Spark custom apps.</p><p>MCP endpoint: <code>${b}/mcp</code></p>`);
+        return send(res, 200, `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=icon href="${b}/favicon.ico" sizes=any><link rel=icon type=image/png href="${b}/icon.png"><link rel=apple-touch-icon href="${b}/apple-touch-icon.png"><meta property=og:image content="${b}/icon.png">${GSV ? `<meta name="google-site-verification" content="${GSV}">` : ''}<title>${SERVER_TITLE}</title><style>body{font-family:system-ui;max-width:560px;margin:60px auto;padding:0 18px;color:#1a1a1a}code{background:#f0f2f7;padding:2px 6px;border-radius:5px}.h{display:flex;align-items:center;gap:14px}</style><div class=h>${logoTag(b)}<h2>${SERVER_TITLE}</h2></div><p>A terminal MCP server for Gemini Spark custom apps.</p><p>MCP endpoint: <code>${b}/mcp</code></p>`);
       }
       return mcp(req, res, raw);
     }
