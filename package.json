@@ -1,6 +1,6 @@
 {
   "name": "spark-terminal-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Terminal MCP server for Gemini Spark custom apps (Streamable HTTP + OAuth 2.1)",
   "main": "server.js",
   "scripts": { "start": "node server.js" },

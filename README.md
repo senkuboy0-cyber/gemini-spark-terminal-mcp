@@ -7,7 +7,8 @@
 **A full Ubuntu terminal inside Gemini Spark.**
 Run commands, edit files, zip things up, and get direct download links — all from chat.
 
-![Node](https://img.shields.io/badge/node-22-3ddc84?style=flat-square&logo=node.js&logoColor=white)
+![Node](https://img.shields.io/badge/node-26-3ddc84?style=flat-square&logo=node.js&logoColor=white)
+![Python](https://img.shields.io/badge/python-3.15-4f8cff?style=flat-square&logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-4f8cff?style=flat-square)
 ![OAuth](https://img.shields.io/badge/OAuth%202.1-DCR%20%2B%20PKCE-a66bff?style=flat-square)
 ![Dependencies](https://img.shields.io/badge/dependencies-0-ff6fb1?style=flat-square)
@@ -33,19 +34,19 @@ Run commands, edit files, zip things up, and get direct download links — all f
 
 | # | Tool | Actions | What it does | Safety |
 |:-:|------|---------|--------------|:------:|
-| 1 | `run_command` | — | Run any bash command. `cwd`, `env`, `timeout`, `background` | 🔴 |
+| 1 | `run_command` | — | Run any bash command. `cwd`, `env`, `timeout`, `background` | ⚡ |
 | 2 | `process` | `list` · `output` · `wait` · `kill` | Manage background jobs | 🟡 |
 | 3 | `fs_read` | `read` · `info` · `list` · `find` · `grep` | Read-only file access | 🟢 |
 | 4 | `fs_write` | `write` · `append` · `edit` · `mkdir` · `copy` · `move` · `delete` | Change files and folders | 🔴 |
 | 5 | `archive` | `create` · `extract` · `list` | zip / tar.gz / tar / 7z / rar, optional share link | 🔴 |
 | 6 | `share_file` | `create` · `list` · `revoke` | Direct download link for any file (folders auto-zipped) | 🟡 |
-| 7 | `run_code` | — | Run Python, Node.js or Bash snippets, with `stdin` | 🔴 |
+| 7 | `run_code` | — | Run Python, Node.js or Bash snippets, with `stdin`. `cloudscraper` preinstalled | ⚡ |
 | 8 | `package` | `install` · `uninstall` · `list` · `search` | apt, pip, npm | 🔴 |
 | 9 | `http` | modes `raw` · `text` · `download` | Call APIs, read pages, download to server | 🟡 |
 | 10 | `env` | `get` · `set` · `unset` · `list` | Environment variables, secrets masked | 🟡 |
 | 11 | `system_info` | — | OS, CPU, RAM, disk, uptime, versions | 🟢 |
 
-🟢 read-only · 🟡 moderate · 🔴 destructive (Spark asks before running)
+🟢 read-only · ⚡ runs without a confirmation prompt · 🟡 moderate · 🔴 destructive (Spark asks before running)
 
 ---
 
@@ -108,9 +109,23 @@ JWT_SECRET=dev CONSENT_PASSWORD=dev node server.js
 
 ---
 
+## 🧪 Runtime
+
+| Tool | Version |
+|------|---------|
+| Ubuntu | 24.04 LTS |
+| Node.js | 26.x (latest, LTS from Oct 28 2026) + latest npm |
+| Python | 3.15 (latest stable, via uv) + latest pip |
+| git | latest (git-core PPA) |
+| Python packages | `cloudscraper`, `requests` |
+| Archives | zip, unzip, 7z, tar, gzip, xz, unrar |
+
+---
+
 ## 🔐 Security
 
 - `run_command` gives **full shell access** — treat the consent password like a root password
+- `run_command` and `run_code` are marked so Spark runs them **without asking each time**
 - `JWT_SECRET` and `CONSENT_PASSWORD` are **stripped from every child process**, hidden from `env`, and cannot be changed through tools
 - `env list` masks anything that looks like a key, token, secret or password, and credentials inside URLs
 - `fs_write delete` refuses protected paths (`/`, `/etc`, `/usr`, `/bin`, `/var`, …) and needs `recursive: true` for folders
@@ -131,7 +146,7 @@ Drawn in code (`assets/icon.svg`, rendered to PNG/ICO). Served at:
 | `/icon.svg` | SVG |
 | `/favicon.ico` | ICO 16–64 |
 
-Also advertised in the MCP `initialize` response (`serverInfo.icons`) and the OAuth registration (`logo_uri`). Whether a client shows it is up to the client.
+Also advertised in the MCP `initialize` response as `serverInfo.icons` — PNG data URIs with `light` and `dark` themes and no `sizes`, the same shape the GitHub MCP server uses — and in the OAuth registration (`logo_uri`).
 
 ---
 
@@ -144,7 +159,7 @@ Also advertised in the MCP `initialize` response (`serverInfo.icons`) and the OA
 │   ├── icon.svg   # logo source
 │   ├── icon.png   # 512×512 render
 │   └── …          # 192px, apple-touch, favicon.ico
-├── Dockerfile     # Ubuntu 24.04 + Node 22 + archive tools
+├── Dockerfile     # Ubuntu 24.04 + Node 26 + Python 3.15 + archive tools
 └── package.json
 ```
 

@@ -11,7 +11,7 @@ const zlib = require('zlib');
 const { spawn, exec } = require('child_process');
 const { URL, URLSearchParams } = require('url');
 const ICONS = {};
-for (const [k, f] of [['png512', 'icon.png'], ['png192', 'icon-192.png'], ['apple', 'apple-touch-icon.png'], ['ico', 'favicon.ico'], ['svg', 'icon.svg']]) {
+for (const [k, f] of [['png64', 'icon-64.png'], ['png512', 'icon.png'], ['png192', 'icon-192.png'], ['apple', 'apple-touch-icon.png'], ['ico', 'favicon.ico'], ['svg', 'icon.svg']]) {
   try { const buf = require('fs').readFileSync(require('path').join(__dirname, 'assets', f)); ICONS[k] = k === 'svg' ? buf.toString() : buf.toString('base64'); } catch {}
 }
 
@@ -20,7 +20,7 @@ const SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 const CONSENT_PASSWORD = process.env.CONSENT_PASSWORD || '';
 const SERVER_NAME = 'spark-terminal-mcp';
 const SERVER_TITLE = 'Terminal MCP';
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const MAX_OUT = 100000;
 const SHARE_DIR = process.env.SHARE_DIR || path.join(os.tmpdir(), 'spark-mcp-share');
 try { fs.mkdirSync(SHARE_DIR, { recursive: true }); } catch {}
@@ -610,9 +610,11 @@ async function toolSystemInfo() {
 // ====================== TOOL SCHEMAS ======================
 const RO = { readOnlyHint: true };
 const DEST = { destructiveHint: true };
+// User choice: run_command and run_code run without a confirmation prompt in Spark.
+const SAFE = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 const TOOLS = [
-  { name: 'run_command', description: 'Run a bash command on the Ubuntu server. Returns stdout, stderr and exit code. Set background:true for long-running jobs (returns a process_id to manage with the "process" tool).',
-    annotations: DEST,
+  { name: 'run_command', title: 'Run command', description: 'Run a bash command on the Ubuntu server. Returns stdout, stderr and exit code. Set background:true for long-running jobs (returns a process_id to manage with the "process" tool).',
+    annotations: SAFE,
     inputSchema: { type: 'object', required: ['command'], properties: {
       command: { type: 'string', description: 'Bash command, e.g. "ls -la" or "python3 app.py"' },
       cwd: { type: 'string', description: 'Working directory (default: home)' },
@@ -665,8 +667,8 @@ const TOOLS = [
       max_downloads: { type: 'integer', description: 'optional download cap' },
       token: { type: 'string', description: 'revoke: the link (or its token)' },
     } } },
-  { name: 'run_code', description: 'Run a snippet of Python, Node.js or Bash and return its output.',
-    annotations: DEST,
+  { name: 'run_code', title: 'Run code', description: 'Run a snippet of Python, Node.js or Bash and return its output. Python has cloudscraper preinstalled (import cloudscraper; s = cloudscraper.create_scraper(); s.get(url)) for pages behind Cloudflare anti-bot checks, plus requests.',
+    annotations: SAFE,
     inputSchema: { type: 'object', required: ['code'], properties: {
       language: { type: 'string', enum: ['python', 'node', 'bash'], description: 'default python' },
       code: { type: 'string' }, stdin: { type: 'string' }, cwd: { type: 'string' }, timeout: { type: 'integer' }, env: { type: 'object' },
@@ -704,9 +706,12 @@ const SUPPORTED = ['2025-06-18', '2025-11-25', '2025-03-26', '2024-11-05'];
 function serverInfo(req) {
   const si = { name: SERVER_NAME, title: SERVER_TITLE, version: VERSION };
   const b = baseUrl(req);
-  si.icons = [];
-  if (ICONS.png192) si.icons.push({ src: `data:image/png;base64,${ICONS.png192}`, mimeType: 'image/png', sizes: ['192x192'] });
-  si.icons.push({ src: b + '/icon.png', mimeType: 'image/png', sizes: ['512x512'] }, { src: b + '/icon.svg', mimeType: 'image/svg+xml', sizes: ['any'] });
+  // Same shape the GitHub MCP server uses (shows in Spark): PNG data URIs, light + dark theme, no "sizes".
+  const png = ICONS.png64 || ICONS.png192;
+  if (png) si.icons = [
+    { src: `data:image/png;base64,${png}`, mimeType: 'image/png', theme: 'light' },
+    { src: `data:image/png;base64,${png}`, mimeType: 'image/png', theme: 'dark' },
+  ];
   si.websiteUrl = b;
   return si;
 }
