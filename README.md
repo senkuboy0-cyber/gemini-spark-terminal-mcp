@@ -40,7 +40,7 @@ Run commands, edit files, zip things up, and get direct download links — all f
 | 4 | `write_files` | `write` · `append` · `edit` · `mkdir` · `copy` · `move` · `delete` | Change files and folders | 🔴 |
 | 5 | `manage_archives` | `create` · `extract` · `list` | zip / tar.gz / tar / 7z / rar, optional share link | 🔴 |
 | 6 | `create_download_link` | `create` · `list` · `revoke` | Direct download link for any file (folders auto-zipped) | 🟡 |
-| 7 | `run_code_snippet` | — | Run Python, Node.js or Bash snippets, with `stdin`. `cloudscraper` preinstalled | ⚡ |
+| 7 | `run_code` | — | Run Python, Node.js or Bash snippets, with `stdin`. `cloudscraper` preinstalled | ⚡ |
 | 8 | `manage_packages` | `install` · `uninstall` · `list` · `search` | apt, pip, npm | 🔴 |
 | 9 | `http_request` | modes `raw` · `text` · `download` | Call APIs, read pages, download to server | 🟡 |
 | 10 | `manage_env_variables` | `get` · `set` · `unset` · `list` | Environment variables, secrets masked | 🟡 |
@@ -127,7 +127,7 @@ JWT_SECRET=dev CONSENT_PASSWORD=dev node server.js
 ## 🔐 Security
 
 - `run_shell_command` gives **full shell access** — treat the consent password like a root password
-- `run_shell_command` and `run_code_snippet` are marked so Spark runs them **without asking each time**
+- `run_shell_command` and `run_code` are marked so Spark runs them **without asking each time**
 - `JWT_SECRET` and `CONSENT_PASSWORD` are **stripped from every child process**, hidden from `manage_env_variables`, and cannot be changed through tools
 - `manage_env_variables list` masks anything that looks like a key, token, secret or password, and credentials inside URLs
 - `write_files delete` refuses protected paths (`/`, `/etc`, `/usr`, `/bin`, `/var`, …) and needs `recursive: true` for folders

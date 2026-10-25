@@ -20,7 +20,7 @@ const SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 const CONSENT_PASSWORD = process.env.CONSENT_PASSWORD || '';
 const SERVER_NAME = 'spark-terminal-mcp';
 const SERVER_TITLE = 'Terminal MCP';
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const MAX_OUT = 100000;
 const SHARE_DIR = process.env.SHARE_DIR || path.join(os.tmpdir(), 'spark-mcp-share');
 try { fs.mkdirSync(SHARE_DIR, { recursive: true }); } catch {}
@@ -610,8 +610,8 @@ async function toolSystemInfo() {
 // ====================== TOOL SCHEMAS ======================
 const RO = { readOnlyHint: true };
 const DEST = { destructiveHint: true };
-// User choice: run_shell_command and run_code_snippet run without a confirmation prompt in Spark.
-const SAFE = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+// User choice: run_shell_command and run_code run without a confirmation prompt in Spark.
+const SAFE = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const TOOLS = [
   { name: 'run_shell_command', title: 'Run Shell Command',
     description: 'Run any bash command on this Ubuntu 24.04 Linux server (full shell with internet access) and get back its stdout, stderr and exit code. Use it for anything a terminal can do: git clone, building projects, running scripts, curl, compiling, starting servers. Runs in /bin/bash, so pipes, redirects and && work. For jobs that take long or never end (servers, watchers, big builds) set background:true; you get a process_id, then use manage_background_process to read output, wait or stop it. Output longer than ~100 KB is truncated. Preinstalled: Node.js 26 + npm, Python 3.15 + pip (cloudscraper, requests), git, build-essential, zip/unzip/7z/tar/unrar, jq, curl, wget. Example: {"command":"git clone https://github.com/user/repo && ls repo"}.',
@@ -682,7 +682,7 @@ const TOOLS = [
       max_downloads: { type: 'integer', description: 'create: optional cap on number of downloads.' },
       token: { type: 'string', description: 'revoke: the link URL (or its token) to disable.' },
     } } },
-  { name: 'run_code_snippet', title: 'Run Code Snippet',
+  { name: 'run_code', title: 'Run Code',
     description: 'Run a piece of Python 3.15, Node.js 26 or Bash code directly (no need to save a file first) and return what it prints, plus errors and exit code. Good for calculations, data processing, quick tests, scraping and API calls. Python has cloudscraper and requests preinstalled: for websites behind a Cloudflare anti-bot page use `import cloudscraper; s = cloudscraper.create_scraper(); r = s.get(url); print(r.status_code, r.text[:2000])`. Install more libraries with manage_packages. Optional stdin is fed to the program.',
     annotations: SAFE,
     inputSchema: { type: 'object', required: ['code'], properties: {
@@ -704,7 +704,7 @@ const TOOLS = [
       timeout: { type: 'integer', description: 'Seconds to allow. No upper limit.' },
     } } },
   { name: 'http_request', title: 'HTTP Request / Download URL',
-    description: 'Call a URL from the server. mode "raw" (default): returns status code, response headers and body - use for REST/JSON APIs with any method (GET, POST, PUT, PATCH, DELETE), custom headers and a body or json. mode "text": fetch a web page and return only its readable text. mode "download": save the file at the URL onto the server at save_to (any size or type); add share:true to also get a download link for the user. For Cloudflare-protected sites use run_code_snippet with cloudscraper instead.',
+    description: 'Call a URL from the server. mode "raw" (default): returns status code, response headers and body - use for REST/JSON APIs with any method (GET, POST, PUT, PATCH, DELETE), custom headers and a body or json. mode "text": fetch a web page and return only its readable text. mode "download": save the file at the URL onto the server at save_to (any size or type); add share:true to also get a download link for the user. For Cloudflare-protected sites use run_code with cloudscraper instead.',
     inputSchema: { type: 'object', required: ['url'], properties: {
       url: { type: 'string', description: 'Full http:// or https:// address.' },
       method: { type: 'string', description: 'HTTP method. Default GET.' },
@@ -732,12 +732,12 @@ const TOOLS = [
 
 const HANDLERS = {
   run_shell_command: toolRunCommand, manage_background_process: toolProcess, read_files: toolFsRead, write_files: toolFsWrite,
-  manage_archives: toolArchive, create_download_link: toolShareFile, run_code_snippet: toolRunCode, manage_packages: toolPackage,
+  manage_archives: toolArchive, create_download_link: toolShareFile, run_code: toolRunCode, manage_packages: toolPackage,
   http_request: toolHttp, manage_env_variables: toolEnv, get_system_info: toolSystemInfo,
 };
 // old v1.x names still accepted
 Object.assign(HANDLERS, { run_command: toolRunCommand, process: toolProcess, fs_read: toolFsRead, fs_write: toolFsWrite,
-  archive: toolArchive, share_file: toolShareFile, run_code: toolRunCode, package: toolPackage, http: toolHttp, env: toolEnv, system_info: toolSystemInfo });
+  archive: toolArchive, share_file: toolShareFile, run_code_snippet: toolRunCode, package: toolPackage, http: toolHttp, env: toolEnv, system_info: toolSystemInfo });
 
 // ---------- MCP ----------
 const SUPPORTED = ['2025-06-18', '2025-11-25', '2025-03-26', '2024-11-05'];
@@ -760,7 +760,7 @@ async function handleRpc(msg, req) {
     case 'initialize': {
       const pv = SUPPORTED.includes(params?.protocolVersion) ? params.protocolVersion : SUPPORTED[0];
       return okr({ protocolVersion: pv, capabilities: { tools: { listChanged: false } }, serverInfo: serverInfo(req),
-        instructions: 'Terminal MCP: a full Ubuntu shell. Run shell commands (run_shell_command, background jobs via manage_background_process), read and edit files (read_files, write_files), zip/unzip (manage_archives), give the user direct download links for any file (create_download_link), run Python/Node/Bash code (run_code_snippet, cloudscraper preinstalled), install packages (manage_packages), call URLs and APIs (http_request), manage environment variables (manage_env_variables) and check the machine (get_system_info).' });
+        instructions: 'Terminal MCP: a full Ubuntu shell. Run shell commands (run_shell_command, background jobs via manage_background_process), read and edit files (read_files, write_files), zip/unzip (manage_archives), give the user direct download links for any file (create_download_link), run Python/Node/Bash code (run_code, cloudscraper preinstalled), install packages (manage_packages), call URLs and APIs (http_request), manage environment variables (manage_env_variables) and check the machine (get_system_info).' });
     }
     case 'ping': return okr({});
     case 'tools/list': return okr({ tools: TOOLS });
