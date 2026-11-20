@@ -32,6 +32,7 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir --upgrade pip 
 WORKDIR /app
 COPY package.json server.js ./
 COPY assets ./assets
-ENV PORT=10000
-EXPOSE 10000
+# ModelScope Studio (Docker) expects port 7860
+ENV PORT=7860
+EXPOSE 7860
 CMD ["node", "server.js"]
